@@ -4,13 +4,11 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import org.junit.jupiter.api.Test;
 
-import javax.net.ssl.KeyManagerFactory;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManagerFactory;
-import javax.net.ssl.X509TrustManager;
-import java.security.KeyStore;
-import java.security.KeyStoreException;
-import java.security.NoSuchAlgorithmException;
+import javax.net.ssl.*;
+import java.io.IOException;
+import java.security.*;
+import java.security.cert.CertificateException;
+import java.util.Arrays;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -18,36 +16,41 @@ public class OkHttpTest {
 
     @Test
     public void clientSslCertificateOkHttp() throws Exception {
-        var sslContext = initSslContext("/badssl.com-client.p12", "badssl.com");
+        var trustManager = initDefaultTrustManager();
+        var keyManagerFactory = initKeyManagerFactory();
+        var socketFactory = initSslSocketFactory(keyManagerFactory, trustManager);
+        var client = new OkHttpClient.Builder().sslSocketFactory(socketFactory, trustManager).build();
 
-        var client = new OkHttpClient.Builder()
-                .sslSocketFactory(sslContext.getSocketFactory(), noopTrustManager())
-                .build();
-        var request = new Request.Builder()
-                .url("https://client.badssl.com/")
-                .build();
-
+        var request = new Request.Builder().url("https://client.badssl.com/").build();
         var response = client.newCall(request).execute();
 
         assertThat(response.isSuccessful()).isTrue();
     }
 
-    private static SSLContext initSslContext(String fileName, String password) throws Exception {
-        KeyStore keyStore = KeyStore.getInstance("PKCS12");
-        keyStore.load(OkHttpTest.class.getResourceAsStream(fileName), password.toCharArray());
-
-        KeyManagerFactory keyManagerFactory = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
-        keyManagerFactory.init(keyStore, password.toCharArray());
+    private static SSLSocketFactory initSslSocketFactory(KeyManagerFactory keyManagerFactory,
+                                                         X509TrustManager trustManager) throws NoSuchAlgorithmException, KeyManagementException {
         var sslContext = SSLContext.getInstance("SSL");
-
-        sslContext.init(keyManagerFactory.getKeyManagers(), null, null);
-        return sslContext;
+        sslContext.init(keyManagerFactory.getKeyManagers(), new TrustManager[]{trustManager}, null);
+        return sslContext.getSocketFactory();
     }
 
-    private static X509TrustManager noopTrustManager() throws NoSuchAlgorithmException, KeyStoreException {
-        String trustManagerFactoryAlgorithm = TrustManagerFactory.getDefaultAlgorithm();
-        TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance(trustManagerFactoryAlgorithm);
-        trustManagerFactory.init(KeyStore.getInstance("PKCS12"));
-        return (X509TrustManager) trustManagerFactory.getTrustManagers()[0];
+    private static KeyManagerFactory initKeyManagerFactory() throws KeyStoreException, IOException,
+            NoSuchAlgorithmException, CertificateException, UnrecoverableKeyException {
+        KeyStore keyStore = KeyStore.getInstance("PKCS12");
+        keyStore.load(OkHttpTest.class.getResourceAsStream("/badssl.com-client.p12"), "badssl.com".toCharArray());
+
+        KeyManagerFactory keyManagerFactory = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+        keyManagerFactory.init(keyStore, "badssl.com".toCharArray());
+        return keyManagerFactory;
+    }
+
+    private static X509TrustManager initDefaultTrustManager() throws NoSuchAlgorithmException, KeyStoreException {
+        var trustManagerFactory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+        trustManagerFactory.init((KeyStore) null);
+        var trustManagers = trustManagerFactory.getTrustManagers();
+        if (trustManagers.length != 1 || !(trustManagers[0] instanceof X509TrustManager)) {
+            throw new IllegalStateException("Unexpected default trust managers: " + Arrays.toString(trustManagers));
+        }
+        return (X509TrustManager) trustManagers[0];
     }
 }
