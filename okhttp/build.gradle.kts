@@ -10,6 +10,7 @@ repositories {
 
 dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:okhttp-tls:4.12.0")
 
     testImplementation(platform("org.junit:junit-bom:5.10.1"))
     // Use JUnit Jupiter for testing.
